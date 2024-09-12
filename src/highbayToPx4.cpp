@@ -9,60 +9,144 @@
 
 HighbayToPx4::HighbayToPx4() : Node("mocap_to_px4", rclcpp::NodeOptions().use_global_arguments(true)) {
     // PARAMETERS
-    // this->declare_parameter<std::string>("env", "phys");
-    // this->get_parameter("env", this->env_);
-
-    // this->declare_parameter<int>("num_drones", 3);
-    // this->get_parameter("num_drones", this->num_drones_);
-
-    // this->declare_parameter<int>("first_drone_num_", 1);
-    // this->get_parameter("first_drone_num_", this->first_drone_num_);
+    this->ns_ = this->get_namespace();
 
     this->declare_parameter<int>("drone_id", 1);
     this->get_parameter("drone_id", this->drone_id_);
 
-    // float estimation_timer_period;
-    // this->declare_parameter<double>("timer_estimation", 0.1);
-    // this->get_parameter("timer_estimation", estimation_timer_period);
+    this->declare_parameter<double>("timer_period_mocap_repub", 0.02);
+    this->get_parameter("timer_period_mocap_repub", this->timer_period_mocap_repub_);
 
-    // this->declare_parameter<double>("est_threshold_ang_dist_", 10.0);
-    // this->get_parameter("est_threshold_ang_dist_", this->est_threshold_ang_dist_);
+    this->declare_parameter("t_px4_rel_mocap", std::vector<double>{0.0, 0.0, 0.0});
+    this->declare_parameter("R_px4_rel_mocap_ypr", std::vector<double>{0.0, 0.0, 0.0});
+    this->get_parameter("t_px4_rel_mocap", this->t_px4_rel_mocap_);
+    this->get_parameter("R_px4_rel_mocap_ypr", this->R_px4_rel_mocap_ypr_); 
 
-    // this->declare_parameter<double>("est_threshold_time_", 3.0);
-    // this->get_parameter("est_threshold_time_", this->est_threshold_time_);
+    std::string topic_mocap;
+    this->declare_parameter<std::string>("topic_mocap","");
+    this->get_parameter("topic_mocap", topic_mocap);
+    topic_mocap = topic_mocap + "_drone" + std::to_string(this->drone_id_) + "/world";  // Add modifiers for this drone
 
-    // // Get the current time
-    // auto now = std::chrono::system_clock::now();
-    // auto init_time = std::chrono::system_clock::to_time_t(now);
+    // Variables
+    this->msg_pose_latest_.header.frame_id = ""; // Set an empty frame_id to indicate that the latest pose msg has not yet been received
+    
+    // TFs
+    this->tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+    this->tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*(this->tf_buffer_));
 
-    // std::stringstream ss;
-    // ss << std::put_time(std::localtime(&init_time), "%Y_%m_%d_%H_%M_%S_"); // Format the time
- 
-    // // VARIABLES
-    // this->tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
-    // this->tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*(this->tf_buffer_));
+    // A static TF to define the mocap's XYZ to PX4's FRD
+    this->tf_static_broadcaster_px4_rel_mocap_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
+    this->create_static_tf();
+    
 
-    // this->tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
+    // SUBSCRIBERS
+    rclcpp::QoS qos_profile_mocap = rclcpp::SensorDataQoS();
+    rclcpp::QoS qos_profile_fmu = rclcpp::SensorDataQoS();
 
-    // int est_timer_period_ms = static_cast<int>(estimation_timer_period * 1000); 
-    // this->estimation_timer_ = this->create_wall_timer(
-    //                             std::chrono::milliseconds(est_timer_period_ms),
-    //                             std::bind(&SlungPoseEstimationOnline::clbk_estimation, this));
+    this->sub_mocap_drone_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+        topic_mocap, qos_profile_mocap, std::bind(&HighbayToPx4::clbk_mocap_received, this, std::placeholders::_1));
 
-    // this->marker_pose_measurements_.resize(this->num_drones_);
-    // this->state_current_estimate_ = droneState::State("world", droneState::CS_type::ENU);
 
-    // // SETUP
-    // this->start_time_ = this->get_clock()->now();
+    // PUBLISHERS
+    int pub_timer_period_ms = static_cast<int>(this->timer_period_mocap_repub_ * 1000); 
+    this->timer_pub_mocap_ = this->create_wall_timer(std::chrono::milliseconds(pub_timer_period_ms), std::bind(&HighbayToPx4::clbk_publoop, this));
+
+
+    std::string topic_name = this->ns_ + "/fmu/in/vehicle_visual_odometry";
+    this->pub_mocap_px4_ = this->create_publisher<px4_msgs::msg::VehicleOdometry>(
+        topic_name, qos_profile_fmu);
 
     // Print info
     RCLCPP_INFO(this->get_logger(), "HIGHBAY VICON TO PX4 CONVERSION NODE");
     
 }
 
-// void SlungPoseEstimationOnline::clbk_estimation(){
+// CALLBACKS
+void HighbayToPx4::clbk_mocap_received(const geometry_msgs::msg::PoseStamped msg){
+    // Store the mocap received msg
+    this->msg_pose_latest_ = msg;
+    //RCLCPP_INFO(this->get_logger(), "Receiving");
+}   
 
-// }   
+void HighbayToPx4::clbk_publoop(){
+    //RCLCPP_INFO(this->get_logger(), "Publishing");
+    
+    // Check if mocap data has been received yet
+    if(this->msg_pose_latest_.header.frame_id == ""){
+        RCLCPP_WARN(this->get_logger(), "Mocap pose data not yet received!");
+        return;
+    }
+
+    // Convert the latest msg to FRD coordinates
+    geometry_msgs::msg::PoseStamped poseInPx4Frame;
+    geometry_msgs::msg::TransformStamped transformStamped;
+
+    try {
+        // Lookup transform from mocap frame to px4 frame
+        transformStamped = this->tf_buffer_->lookupTransform("px4", "mocap", tf2::TimePointZero);
+
+        // Create a new PoseStamped for the transformed pose
+        tf2::doTransform(this->msg_pose_latest_, poseInPx4Frame, transformStamped);
+
+    } catch (tf2::TransformException &ex) {
+        RCLCPP_WARN(this->get_logger(), "%s", ex.what());
+    }
+
+    // Create px4 message
+    px4_msgs::msg::VehicleOdometry vehicleOdom;
+
+    // Set timestamp
+    // TODO: This comes out at 0 (apparently OK as pixhawk should fill this in?)
+    vehicleOdom.timestamp = transformStamped.header.stamp.sec*1000000 + transformStamped.header.stamp.nanosec / 1000;  // Convert to microseconds
+
+    // Position
+    vehicleOdom.pose_frame = px4_msgs::msg::VehicleOdometry::POSE_FRAME_FRD;
+    vehicleOdom.position[0] = poseInPx4Frame.pose.position.x;
+    vehicleOdom.position[1] = poseInPx4Frame.pose.position.y;
+    vehicleOdom.position[2] = poseInPx4Frame.pose.position.z;
+
+    // Orientation
+    vehicleOdom.q[0] = poseInPx4Frame.pose.orientation.w;  // Note quaternion order: q(w, x, y, z)
+    vehicleOdom.q[1] = poseInPx4Frame.pose.orientation.x;
+    vehicleOdom.q[2] = poseInPx4Frame.pose.orientation.y;
+    vehicleOdom.q[3] = poseInPx4Frame.pose.orientation.z;
+
+    // Velocity
+    //vehicle_odometry.velocity_frame = px4_msgs::msg::VehicleOdometry::VELOCITY_FRAME_UNKNOWN;
+    //vehicle_odometry.velocity[0]
+    //vehicle_odometry.angular_velocity[0]
+
+    // Publish to PX4
+    this->pub_mocap_px4_->publish(vehicleOdom);
+}
+
+// HELPERS 
+// Could do this manually without tfs if faster is required
+void HighbayToPx4::create_static_tf(){   
+    // Create a transform stamped msg to publish
+    geometry_msgs::msg::TransformStamped transformStamped;
+
+    transformStamped.header.stamp = this->get_clock()->now();  // ros::Time::now();
+    transformStamped.header.frame_id = "mocap";
+    transformStamped.child_frame_id = "px4";
+    transformStamped.transform.translation.x = this->t_px4_rel_mocap_[0];
+    transformStamped.transform.translation.y = this->t_px4_rel_mocap_[1];
+    transformStamped.transform.translation.z = this->t_px4_rel_mocap_[2];
+
+    // Compute the rotation matrix from Yaw-Pitch-Roll
+    tf2::Quaternion q;
+    tf2::Matrix3x3 m;
+    m.setRPY(this->R_px4_rel_mocap_ypr_[2], this->R_px4_rel_mocap_ypr_[1], this->R_px4_rel_mocap_ypr_[0]);
+    m.getRotation(q);
+
+    transformStamped.transform.rotation.x = q.x();
+    transformStamped.transform.rotation.y = q.y();
+    transformStamped.transform.rotation.z = q.z();
+    transformStamped.transform.rotation.w = q.w();
+
+    // Broadcast the transform
+    this->tf_static_broadcaster_px4_rel_mocap_->sendTransform(transformStamped);
+}
 
 
 int main(int argc, char *argv[]) {

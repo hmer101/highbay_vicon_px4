@@ -4,9 +4,13 @@
 #include <string>
 
 #include <rclcpp/rclcpp.hpp>
-// #include <tf2_ros/transform_listener.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/static_transform_broadcaster.h>
 
-// #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+
+#include "px4_msgs/msg/vehicle_odometry.hpp"
 // #include "std_msgs/msg/string.hpp"
 
 // #include "multi_drone_slung_load_interfaces/msg/phase.hpp"
@@ -20,34 +24,36 @@ public:
 
 private:
     // PARAMETERS
+    std::string ns_;
     int drone_id_;
 
-    // int num_drones_;
-    // int first_drone_num_;
+    double timer_period_mocap_repub_;
 
-    // std::string env_;
-    // rclcpp::Time start_time_;
+    std::vector<double> t_px4_rel_mocap_;
+    std::vector<double> R_px4_rel_mocap_ypr_;
 
-    // float est_threshold_ang_dist_;
-    // float est_threshold_time_;
+    // VARIABLES
+    geometry_msgs::msg::PoseStamped msg_pose_latest_;
 
-    // // VARIABLES
-    // std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
-    // std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
-    // std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+    // TFs
+    std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+    std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+    std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_static_broadcaster_px4_rel_mocap_;
 
-    // std::vector<std::optional<geometry_msgs::msg::TransformStamped>> marker_pose_measurements_;
+    // SUBSCRIBERS
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_mocap_drone_;
+
+    // PUBLISHERS
+    rclcpp::TimerBase::SharedPtr timer_pub_mocap_;
+    rclcpp::Publisher<px4_msgs::msg::VehicleOdometry>::SharedPtr pub_mocap_px4_;
     
-    // droneState::State state_current_estimate_;
 
-    // rclcpp::TimerBase::SharedPtr estimation_timer_;
-    
-    // // Flags 
-    // bool state_estimate_set_ = false;
+    // CALLBACKS
+    void clbk_mocap_received(const geometry_msgs::msg::PoseStamped msg);
+    void clbk_publoop();
 
-    // // CALLBACKS
-    // void clbk_estimation();
-
+    // HELPERS
+    void create_static_tf();
 };
 
 #endif // HIGHBAY_TO_PX4_H
