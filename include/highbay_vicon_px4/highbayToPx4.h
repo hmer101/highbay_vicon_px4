@@ -13,11 +13,6 @@
 #include "px4_msgs/msg/vehicle_odometry.hpp"
 // #include "std_msgs/msg/string.hpp"
 
-// #include "multi_drone_slung_load_interfaces/msg/phase.hpp"
-// #include "slung_pose_estimation/State.h"
-// #include "slung_pose_estimation/utils.h"
-
-
 class HighbayToPx4 : public rclcpp::Node {
 public:
     HighbayToPx4();
