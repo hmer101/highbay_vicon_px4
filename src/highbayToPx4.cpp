@@ -16,12 +16,19 @@ HighbayToPx4::HighbayToPx4() : Node("mocap_to_px4", rclcpp::NodeOptions().use_gl
     this->ns_ = this->get_namespace();
 
     // Get the name and device number from the namespace
+    // TODO: Make a more robust way of doing this!
     std::regex pattern(R"(/(\w+)_(\d+))");
     std::smatch match;
 
     if (std::regex_search(this->ns_, match, pattern)) {
-        this->device_role_ = match[1]; // Gets the word after the '_'
-        this->device_id_ = std::stoi(match[2]); // Gets the number
+        // Get the word after the '_'
+        this->device_role_ = match[1]; 
+        
+        if (this->device_role_ == "px4"){ // TODO: better work around
+            this->device_role_ = "drone";
+        }
+
+        this->device_id_ = std::stoi(match[2]); // Get the number
     } else {
         RCLCPP_INFO(this->get_logger(), "Namespace not set; cannot get device params!");
     }
