@@ -20,7 +20,8 @@ public:
 private:
     // PARAMETERS
     std::string ns_;
-    int drone_id_;
+    std::string device_role_;
+    int device_id_;
 
     double timer_period_mocap_repub_;
 
@@ -36,7 +37,7 @@ private:
     std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_static_broadcaster_px4_rel_mocap_;
 
     // SUBSCRIBERS
-    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_mocap_drone_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_mocap_device_;
 
     // PUBLISHERS
     rclcpp::TimerBase::SharedPtr timer_pub_mocap_;

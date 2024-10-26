@@ -11,8 +11,11 @@ HighbayToPx4::HighbayToPx4() : Node("mocap_to_px4", rclcpp::NodeOptions().use_gl
     // PARAMETERS
     this->ns_ = this->get_namespace();
 
-    this->declare_parameter<int>("drone_id", 1);
-    this->get_parameter("drone_id", this->drone_id_);
+    this->declare_parameter<int>("device_role", "drone");
+    this->get_parameter("device_role", this->device_role_);
+
+    this->declare_parameter<int>("device_id", 1);
+    this->get_parameter("device_id", this->device_id_);
 
     this->declare_parameter<double>("timer_period_mocap_repub", 0.02);
     this->get_parameter("timer_period_mocap_repub", this->timer_period_mocap_repub_);
@@ -25,7 +28,7 @@ HighbayToPx4::HighbayToPx4() : Node("mocap_to_px4", rclcpp::NodeOptions().use_gl
     std::string topic_mocap;
     this->declare_parameter<std::string>("topic_mocap","");
     this->get_parameter("topic_mocap", topic_mocap);
-    topic_mocap = topic_mocap + "_drone" + std::to_string(this->drone_id_) + "/world";  // Add modifiers for this drone
+    topic_mocap = "/" + topic_mocap + "_" + this->device_role_ + std::to_string(this->device_id_) + "/world";  // Add modifiers for this device  
 
     // Variables
     this->msg_pose_latest_.header.frame_id = ""; // Set an empty frame_id to indicate that the latest pose msg has not yet been received
@@ -43,7 +46,7 @@ HighbayToPx4::HighbayToPx4() : Node("mocap_to_px4", rclcpp::NodeOptions().use_gl
     rclcpp::QoS qos_profile_mocap = rclcpp::SensorDataQoS();
     rclcpp::QoS qos_profile_fmu = rclcpp::SensorDataQoS();
 
-    this->sub_mocap_drone_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+    this->sub_mocap_device_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
         topic_mocap, qos_profile_mocap, std::bind(&HighbayToPx4::clbk_mocap_received, this, std::placeholders::_1));
 
 
@@ -58,6 +61,7 @@ HighbayToPx4::HighbayToPx4() : Node("mocap_to_px4", rclcpp::NodeOptions().use_gl
 
     // Print info
     RCLCPP_INFO(this->get_logger(), "HIGHBAY VICON TO PX4 CONVERSION NODE");
+    RCLCPP_INFO(this->get_logger(), "topic_mocap: %s", topic_mocap.c_str());
     
 }
 
@@ -65,7 +69,7 @@ HighbayToPx4::HighbayToPx4() : Node("mocap_to_px4", rclcpp::NodeOptions().use_gl
 void HighbayToPx4::clbk_mocap_received(const geometry_msgs::msg::PoseStamped msg){
     // Store the mocap received msg
     this->msg_pose_latest_ = msg;
-    //RCLCPP_INFO(this->get_logger(), "Receiving");
+    RCLCPP_INFO(this->get_logger(), "Receiving");
 }   
 
 void HighbayToPx4::clbk_publoop(){
@@ -73,7 +77,7 @@ void HighbayToPx4::clbk_publoop(){
     
     // Check if mocap data has been received yet
     if(this->msg_pose_latest_.header.frame_id == ""){
-        RCLCPP_WARN(this->get_logger(), "Mocap pose data not yet received!");
+        //RCLCPP_WARN(this->get_logger(), "Mocap pose data not yet received!");
         return;
     }
 
