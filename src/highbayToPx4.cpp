@@ -4,6 +4,10 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <fstream>
 
+#include <iostream>
+#include <regex>
+#include <string>
+
 #include <chrono> // Include for std::chrono
 #include <iomanip> // Include for std::put_time
 
@@ -11,11 +15,22 @@ HighbayToPx4::HighbayToPx4() : Node("mocap_to_px4", rclcpp::NodeOptions().use_gl
     // PARAMETERS
     this->ns_ = this->get_namespace();
 
-    this->declare_parameter<std::string>("device_role", "drone");
-    this->get_parameter("device_role", this->device_role_);
+    // Get the name and device number from the namespace
+    std::regex pattern(R"(_(\w+)(\d+))");
+    std::smatch match;
 
-    this->declare_parameter<int>("device_id", 1);
-    this->get_parameter("device_id", this->device_id_);
+    if (std::regex_search(input, match, pattern)) {
+        this->device_role_ = match[1]; // Gets the word after the '_'
+        this->device_id_ = match[2]; // Gets the number
+    } else {
+        RCLCPP_INFO(this->get_logger(), "Namespace not set; cannot get device params!");
+    }
+
+    // this->declare_parameter<std::string>("device_role", "drone");
+    // this->get_parameter("device_role", this->device_role_);
+
+    // this->declare_parameter<int>("device_id", 1);
+    // this->get_parameter("device_id", this->device_id_);
 
     this->declare_parameter<double>("timer_period_mocap_repub", 0.02);
     this->get_parameter("timer_period_mocap_repub", this->timer_period_mocap_repub_);
