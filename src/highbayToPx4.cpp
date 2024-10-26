@@ -16,7 +16,7 @@ HighbayToPx4::HighbayToPx4() : Node("mocap_to_px4", rclcpp::NodeOptions().use_gl
     this->ns_ = this->get_namespace();
 
     // Get the name and device number from the namespace
-    std::regex pattern(R"(_(\w+)(\d+))");
+    std::regex pattern(R"(/(\w+)_(\d+))");
     std::smatch match;
 
     if (std::regex_search(this->ns_, match, pattern)) {
