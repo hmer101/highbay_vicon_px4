@@ -11,7 +11,7 @@ HighbayToPx4::HighbayToPx4() : Node("mocap_to_px4", rclcpp::NodeOptions().use_gl
     // PARAMETERS
     this->ns_ = this->get_namespace();
 
-    this->declare_parameter<int>("device_role", "drone");
+    this->declare_parameter<std::string>("device_role", "drone");
     this->get_parameter("device_role", this->device_role_);
 
     this->declare_parameter<int>("device_id", 1);
