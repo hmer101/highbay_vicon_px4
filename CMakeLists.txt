@@ -14,19 +14,22 @@ find_package(ament_cmake REQUIRED)
 # further dependencies manually.
 # find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-# find_package(tf2_ros REQUIRED)
-# find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2 REQUIRED)
 # find_package(std_msgs REQUIRED)
 # find_package(sensor_msgs REQUIRED)
-# find_package(tf2_geometry_msgs REQUIRED)
-# find_package(tf2_eigen REQUIRED)
-# find_package(Eigen3 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+#find_package(tf2_eigen REQUIRED)
+#find_package(Eigen3 REQUIRED)
+#find_package(rosidl_default_generators REQUIRED)
+find_package(px4_msgs REQUIRED)
 
 # Include directories
 include_directories(
   include
   #${EIGEN3_INCLUDE_DIR}
 )
+  
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -54,7 +57,7 @@ add_executable(highbay_to_px4 src/highbayToPx4.cpp)
 # )
 
 # Add external dependencies
-ament_target_dependencies(highbay_to_px4 rclcpp) #tf2_geometry_msgs tf2 Eigen3
+ament_target_dependencies(highbay_to_px4 tf2 rclcpp tf2_geometry_msgs tf2_ros px4_msgs) #tf2_geometry_msgs tf2 Eigen3
 
 # Install the libraries and executables
 install(TARGETS
