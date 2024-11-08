@@ -94,39 +94,33 @@ HighbayToPx4::HighbayToPx4() : Node("mocap_to_px4", rclcpp::NodeOptions().use_gl
 void HighbayToPx4::clbk_mocap_received(const geometry_msgs::msg::PoseStamped msg){
     // Store the mocap received msg
     this->msg_pose_latest_ = msg;
-    //RCLCPP_INFO(this->get_logger(), "Receiving");
 }   
 
-void HighbayToPx4::clbk_publoop(){
-    //RCLCPP_INFO(this->get_logger(), "Publishing");
-    
+void HighbayToPx4::clbk_publoop(){    
     // Check if mocap data has been received yet
-    geometry_msgs::msg::PoseStamped pose_latest_FLU;
+    geometry_msgs::msg::PoseStamped pose_latest_FRD;
 
     if(this->msg_pose_latest_.header.frame_id == ""){
         RCLCPP_WARN(this->get_logger(), "Mocap pose data not yet received!");
         return;
     }else{
-        // RCLCPP_INFO(this->get_logger(), "orient from mocap: (%f, %f, %f, %f)",
-        //             this->msg_pose_latest_.pose.orientation.w, this->msg_pose_latest_.pose.orientation.x, this->msg_pose_latest_.pose.orientation.y, this->msg_pose_latest_.pose.orientation.z);
-        
         // Convert FLU frame direction to FRD
-        pose_latest_FLU = this->msg_pose_latest_; // Does this deep copy?
-
         tf2::Quaternion q_FLU(
-            pose_latest_FLU.pose.orientation.w,
-            pose_latest_FLU.pose.orientation.x,
-            pose_latest_FLU.pose.orientation.y,
-            pose_latest_FLU.pose.orientation.z
+            this->msg_pose_latest_.pose.orientation.x,
+            this->msg_pose_latest_.pose.orientation.y,
+            this->msg_pose_latest_.pose.orientation.z,
+            this->msg_pose_latest_.pose.orientation.w
         );
 
-        tf2::Quaternion q_FLU_FRD(0.0, 1.0, 0.0, 0.0);
+        tf2::Quaternion q_FLU_FRD(1.0, 0.0, 0.0, 0.0);
         tf2::Quaternion q_FRD = q_FLU * q_FLU_FRD;
 
-        pose_latest_FLU.pose.orientation.w = q_FRD.w();
-        pose_latest_FLU.pose.orientation.x = q_FRD.x();
-        pose_latest_FLU.pose.orientation.y = q_FRD.y();
-        pose_latest_FLU.pose.orientation.z = q_FRD.z();
+        pose_latest_FRD = this->msg_pose_latest_; // Does this deep copy?
+        pose_latest_FRD.pose.orientation.x = q_FRD.x();
+        pose_latest_FRD.pose.orientation.y = q_FRD.y();
+        pose_latest_FRD.pose.orientation.z = q_FRD.z();
+        pose_latest_FRD.pose.orientation.w = q_FRD.w();
+
     }
 
     // Convert the latest msg to FRD coordinates
@@ -138,12 +132,8 @@ void HighbayToPx4::clbk_publoop(){
         // target frame, source frame
         transformStamped = this->tf_buffer_->lookupTransform("px4", "mocap", tf2::TimePointZero);
 
-        
-        // RCLCPP_INFO(this->get_logger(), "TF stamped: (%f, %f, %f, %f)",
-        //         transformStamped.transform.rotation.w, transformStamped.transform.rotation.x, transformStamped.transform.rotation.y, transformStamped.transform.rotation.z);
-
         // Create a new PoseStamped for the transformed pose
-        tf2::doTransform(pose_latest_FLU, poseInPx4Frame, transformStamped);
+        tf2::doTransform(pose_latest_FRD, poseInPx4Frame, transformStamped);
 
     } catch (tf2::TransformException &ex) {
         RCLCPP_WARN(this->get_logger(), "%s", ex.what());
@@ -174,9 +164,8 @@ void HighbayToPx4::clbk_publoop(){
     //vehicle_odometry.angular_velocity[0]
 
     // DEBUG: Print the quaternion values to see the orientation
-    RCLCPP_INFO(this->get_logger(), "Orientation in NED (w, x, y, z): (%f, %f, %f, %f)",
-                vehicleOdom.q[0], vehicleOdom.q[1], vehicleOdom.q[2], vehicleOdom.q[3]);
-
+    // RCLCPP_INFO(this->get_logger(), "Orientation in NED (w, x, y, z): (%f, %f, %f, %f)",
+    //             vehicleOdom.q[0], vehicleOdom.q[1], vehicleOdom.q[2], vehicleOdom.q[3]);
 
     // Publish to PX4
     this->pub_mocap_px4_->publish(vehicleOdom);
@@ -209,11 +198,6 @@ void HighbayToPx4::create_static_tfs(){
     // Broadcast the transform
     this->tf_static_broadcaster_px4_rel_mocap_->sendTransform(transformStamped);
 }
-
-
-// void HighbayToPx4::broadcast_static_tf(time, std::string frame_header, std:string frame_child, std::vector<double> t, tf2::Quaternion q){
-
-// }
 
 int main(int argc, char *argv[]) {
     rclcpp::init(argc, argv);
