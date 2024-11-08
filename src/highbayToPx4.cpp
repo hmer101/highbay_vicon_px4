@@ -101,6 +101,8 @@ void HighbayToPx4::clbk_publoop(){
     //RCLCPP_INFO(this->get_logger(), "Publishing");
     
     // Check if mocap data has been received yet
+    geometry_msgs::msg::PoseStamped pose_latest_FLU;
+
     if(this->msg_pose_latest_.header.frame_id == ""){
         RCLCPP_WARN(this->get_logger(), "Mocap pose data not yet received!");
         return;
@@ -109,7 +111,7 @@ void HighbayToPx4::clbk_publoop(){
         //             this->msg_pose_latest_.pose.orientation.w, this->msg_pose_latest_.pose.orientation.x, this->msg_pose_latest_.pose.orientation.y, this->msg_pose_latest_.pose.orientation.z);
         
         // Convert FLU frame direction to FRD
-        geometry_msgs::msg::PoseStamped pose_latest_FLU = this->msg_pose_latest_; // Does this deep copy?
+        pose_latest_FLU = this->msg_pose_latest_; // Does this deep copy?
 
         tf2::Quaternion q_FLU(
             pose_latest_FLU.pose.orientation.w,
@@ -121,10 +123,10 @@ void HighbayToPx4::clbk_publoop(){
         tf2::Quaternion q_FLU_FRD(0.0, 1.0, 0.0, 0.0);
         tf2::Quaternion q_FRD = q_FLU * q_FLU_FRD;
 
-        pose_latest_FLU.pose.orientation.w = q_FRD.w;
-        pose_latest_FLU.pose.orientation.x = q_FRD.x;
-        pose_latest_FLU.pose.orientation.y = q_FRD.y;
-        pose_latest_FLU.pose.orientation.z = q_FRD.z;
+        pose_latest_FLU.pose.orientation.w = q_FRD.w();
+        pose_latest_FLU.pose.orientation.x = q_FRD.x();
+        pose_latest_FLU.pose.orientation.y = q_FRD.y();
+        pose_latest_FLU.pose.orientation.z = q_FRD.z();
     }
 
     // Convert the latest msg to FRD coordinates
