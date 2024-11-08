@@ -49,7 +49,7 @@ private:
     void clbk_publoop();
 
     // HELPERS
-    void create_static_tf();
+    void create_static_tfs();
 };
 
 #endif // HIGHBAY_TO_PX4_H

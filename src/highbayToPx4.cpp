@@ -11,6 +11,9 @@
 #include <chrono> // Include for std::chrono
 #include <iomanip> // Include for std::put_time
 
+//#include <Eigen/Geometry>
+#include <tf2/LinearMath/Matrix3x3.h>
+
 HighbayToPx4::HighbayToPx4() : Node("mocap_to_px4", rclcpp::NodeOptions().use_global_arguments(true)) {
     // PARAMETERS
     this->ns_ = this->get_namespace();
@@ -61,7 +64,7 @@ HighbayToPx4::HighbayToPx4() : Node("mocap_to_px4", rclcpp::NodeOptions().use_gl
 
     // A static TF to define the mocap's XYZ to PX4's FRD
     this->tf_static_broadcaster_px4_rel_mocap_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
-    this->create_static_tf();
+    this->create_static_tfs();
     
 
     // SUBSCRIBERS
@@ -91,7 +94,7 @@ HighbayToPx4::HighbayToPx4() : Node("mocap_to_px4", rclcpp::NodeOptions().use_gl
 void HighbayToPx4::clbk_mocap_received(const geometry_msgs::msg::PoseStamped msg){
     // Store the mocap received msg
     this->msg_pose_latest_ = msg;
-    RCLCPP_INFO(this->get_logger(), "Receiving");
+    //RCLCPP_INFO(this->get_logger(), "Receiving");
 }   
 
 void HighbayToPx4::clbk_publoop(){
@@ -99,8 +102,29 @@ void HighbayToPx4::clbk_publoop(){
     
     // Check if mocap data has been received yet
     if(this->msg_pose_latest_.header.frame_id == ""){
-        //RCLCPP_WARN(this->get_logger(), "Mocap pose data not yet received!");
+        RCLCPP_WARN(this->get_logger(), "Mocap pose data not yet received!");
         return;
+    }else{
+        // RCLCPP_INFO(this->get_logger(), "orient from mocap: (%f, %f, %f, %f)",
+        //             this->msg_pose_latest_.pose.orientation.w, this->msg_pose_latest_.pose.orientation.x, this->msg_pose_latest_.pose.orientation.y, this->msg_pose_latest_.pose.orientation.z);
+        
+        // Convert FLU frame direction to FRD
+        geometry_msgs::msg::PoseStamped pose_latest_FLU = this->msg_pose_latest_; // Does this deep copy?
+
+        tf2::Quaternion q_FLU(
+            pose_latest_FLU.pose.orientation.w,
+            pose_latest_FLU.pose.orientation.x,
+            pose_latest_FLU.pose.orientation.y,
+            pose_latest_FLU.pose.orientation.z
+        );
+
+        tf2::Quaternion q_FLU_FRD(0.0, 1.0, 0.0, 0.0);
+        tf2::Quaternion q_FRD = q_FLU * q_FLU_FRD;
+
+        pose_latest_FLU.pose.orientation.w = q_FRD.w;
+        pose_latest_FLU.pose.orientation.x = q_FRD.x;
+        pose_latest_FLU.pose.orientation.y = q_FRD.y;
+        pose_latest_FLU.pose.orientation.z = q_FRD.z;
     }
 
     // Convert the latest msg to FRD coordinates
@@ -109,10 +133,15 @@ void HighbayToPx4::clbk_publoop(){
 
     try {
         // Lookup transform from mocap frame to px4 frame
+        // target frame, source frame
         transformStamped = this->tf_buffer_->lookupTransform("px4", "mocap", tf2::TimePointZero);
 
+        
+        // RCLCPP_INFO(this->get_logger(), "TF stamped: (%f, %f, %f, %f)",
+        //         transformStamped.transform.rotation.w, transformStamped.transform.rotation.x, transformStamped.transform.rotation.y, transformStamped.transform.rotation.z);
+
         // Create a new PoseStamped for the transformed pose
-        tf2::doTransform(this->msg_pose_latest_, poseInPx4Frame, transformStamped);
+        tf2::doTransform(pose_latest_FLU, poseInPx4Frame, transformStamped);
 
     } catch (tf2::TransformException &ex) {
         RCLCPP_WARN(this->get_logger(), "%s", ex.what());
@@ -126,14 +155,14 @@ void HighbayToPx4::clbk_publoop(){
     vehicleOdom.timestamp = transformStamped.header.stamp.sec*1000000 + transformStamped.header.stamp.nanosec / 1000;  // Convert to microseconds
 
     // Position
-    vehicleOdom.pose_frame = px4_msgs::msg::VehicleOdometry::POSE_FRAME_FRD;
+    vehicleOdom.pose_frame = px4_msgs::msg::VehicleOdometry::POSE_FRAME_NED; // POSE_FRAME_FRD;
     vehicleOdom.position[0] = poseInPx4Frame.pose.position.x;
     vehicleOdom.position[1] = poseInPx4Frame.pose.position.y;
     vehicleOdom.position[2] = poseInPx4Frame.pose.position.z;
 
     // Orientation
     vehicleOdom.q[0] = poseInPx4Frame.pose.orientation.w;  // Note quaternion order: q(w, x, y, z)
-    vehicleOdom.q[1] = poseInPx4Frame.pose.orientation.x;
+    vehicleOdom.q[1] = poseInPx4Frame.pose.orientation.x;  // This order has been tested and is correct
     vehicleOdom.q[2] = poseInPx4Frame.pose.orientation.y;
     vehicleOdom.q[3] = poseInPx4Frame.pose.orientation.z;
 
@@ -142,13 +171,18 @@ void HighbayToPx4::clbk_publoop(){
     //vehicle_odometry.velocity[0]
     //vehicle_odometry.angular_velocity[0]
 
+    // DEBUG: Print the quaternion values to see the orientation
+    RCLCPP_INFO(this->get_logger(), "Orientation in NED (w, x, y, z): (%f, %f, %f, %f)",
+                vehicleOdom.q[0], vehicleOdom.q[1], vehicleOdom.q[2], vehicleOdom.q[3]);
+
+
     // Publish to PX4
     this->pub_mocap_px4_->publish(vehicleOdom);
 }
 
 // HELPERS 
 // Could do this manually without tfs if faster is required
-void HighbayToPx4::create_static_tf(){   
+void HighbayToPx4::create_static_tfs(){   
     // Create a transform stamped msg to publish
     geometry_msgs::msg::TransformStamped transformStamped;
 
@@ -174,6 +208,10 @@ void HighbayToPx4::create_static_tf(){
     this->tf_static_broadcaster_px4_rel_mocap_->sendTransform(transformStamped);
 }
 
+
+// void HighbayToPx4::broadcast_static_tf(time, std::string frame_header, std:string frame_child, std::vector<double> t, tf2::Quaternion q){
+
+// }
 
 int main(int argc, char *argv[]) {
     rclcpp::init(argc, argv);
