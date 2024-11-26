@@ -41,9 +41,12 @@ HighbayToPx4::HighbayToPx4() : Node("mocap_to_px4", rclcpp::NodeOptions().use_gl
 
     // this->declare_parameter<int>("device_id", 1);
     // this->get_parameter("device_id", this->device_id_);
-
+    
     this->declare_parameter<double>("timer_period_mocap_repub", 0.02);
     this->get_parameter("timer_period_mocap_repub", this->timer_period_mocap_repub_);
+
+    this->declare_parameter("print_debug_msgs", true);
+    this->get_parameter("print_debug_msgs", this->print_debug_msgs_);
 
     this->declare_parameter("t_px4_rel_mocap", std::vector<double>{0.0, 0.0, 0.0});
     this->declare_parameter("R_px4_rel_mocap_ypr", std::vector<double>{0.0, 0.0, 0.0});
@@ -101,7 +104,10 @@ void HighbayToPx4::clbk_publoop(){
     geometry_msgs::msg::PoseStamped pose_latest_FRD;
 
     if(this->msg_pose_latest_.header.frame_id == ""){
-        RCLCPP_WARN(this->get_logger(), "Mocap pose data not yet received!");
+        if(print_debug_msgs_ == true){
+            RCLCPP_WARN(this->get_logger(), "Mocap pose data not yet received!");
+        }
+        
         return;
     }else{
         // Convert FLU frame direction to FRD
@@ -158,7 +164,7 @@ void HighbayToPx4::clbk_publoop(){
     vehicleOdom.q[2] = poseInPx4Frame.pose.orientation.y;
     vehicleOdom.q[3] = poseInPx4Frame.pose.orientation.z;
 
-    // Velocity
+    // Velocity Note: sluggish respose without velocity estimate from mocap (need to change EKF_EV_CTRL param on px4 to 15 too if you want to switch velocity feedback on)
     //vehicle_odometry.velocity_frame = px4_msgs::msg::VehicleOdometry::VELOCITY_FRAME_UNKNOWN;
     //vehicle_odometry.velocity[0]
     //vehicle_odometry.angular_velocity[0]

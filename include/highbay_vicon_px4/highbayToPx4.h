@@ -23,6 +23,7 @@ private:
     std::string device_role_;
     int device_id_;
 
+    bool print_debug_msgs_;
     double timer_period_mocap_repub_;
 
     std::vector<double> t_px4_rel_mocap_;
