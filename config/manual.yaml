@@ -1,0 +1,12 @@
+/**:
+    ros__parameters:
+      ## DIRECTORIES 
+      #dir_rosbag: ws_ros2/data/
+
+      ## NODE DISTRIBUTION
+      #use_zenoh_bridge: true # Use zenoh bridge to communicate between nodes on different devices
+
+      ## TOPIC NAMES
+      # topic_img_rgb: /color/image_raw
+      # topic_cam_info_color: /color/camera_info
+      topic_mocap: 'merton' #/merton_drone1/world

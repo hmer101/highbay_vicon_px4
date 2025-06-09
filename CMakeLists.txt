@@ -70,6 +70,10 @@ install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}/
 )
 
+# Install config files
+install(DIRECTORY config
+  DESTINATION share/${PROJECT_NAME}/
+)
 
 # Install data (note without this get "unable to open file for logging" error)
 # install(DIRECTORY
