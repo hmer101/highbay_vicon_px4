@@ -6,6 +6,13 @@
       ## NODE DISTRIBUTION
       #use_zenoh_bridge: true # Use zenoh bridge to communicate between nodes on different devices
 
+
+      ## TFs
+      t_px4_rel_mocap: [0.0, 0.0, 0.0] # Static offset of mocap world frame to body-fixed frame
+      R_px4_rel_mocap_ypr: [-1.570796327, 3.141592654, 0.0] #N aligned with mocap room x:[0.0, 0.0, 3.141592654] # Rotation of px4 relative to mocap world (defined on computer) in YPR, also in this order here (note that old mavros tf is in YPR like [-1.570796327, 3.141592654, 0.0])
+
+      #mocap_origin_lla: [42.360556, -71.093056, 10.0] # lla coordinates of the mocap room's origin (to allow drone auto modes and QGC to show location)
+
       ## TOPIC NAMES
       # topic_img_rgb: /color/image_raw
       # topic_cam_info_color: /color/camera_info
