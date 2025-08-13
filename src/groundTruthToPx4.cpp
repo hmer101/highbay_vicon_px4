@@ -87,13 +87,13 @@ void GroundTruthToPx4::clbk_publoop() {
     // Compose the ground truth frame name
     std::string device_gt_name = this->device_role_ + std::to_string(this->device_id_) + "_gt";
 
-    // Check if transform is available
+    // 1) Get pose of device in mocap reference frame (gt_ref_name_)
     geometry_msgs::msg::TransformStamped transformStamped;
     try {
-        // Lookup transform from ground truth reference frame to device ground truth frame (mocap frame)
+        // target = reference frame, source = device frame
         transformStamped = this->tf_buffer_->lookupTransform(
-            this->gt_ref_name_,   // target frame (reference)
-            device_gt_name,       // source frame (device)
+            this->gt_ref_name_,   // target frame (reference / mocap world)
+            device_gt_name,       // source frame (device body in mocap)
             tf2::TimePointZero
         );
     } catch (tf2::TransformException &ex) {
@@ -101,7 +101,7 @@ void GroundTruthToPx4::clbk_publoop() {
         return;
     }
 
-    // Convert TransformStamped to PoseStamped (identity pose at the source frame)
+    // 2) Build a PoseStamped from that transform (pose in mocap frame, body orientation is FLU)
     geometry_msgs::msg::PoseStamped pose_in_mocap_frame;
     pose_in_mocap_frame.header = transformStamped.header;
     pose_in_mocap_frame.pose.position.x = transformStamped.transform.translation.x;
@@ -109,17 +109,30 @@ void GroundTruthToPx4::clbk_publoop() {
     pose_in_mocap_frame.pose.position.z = transformStamped.transform.translation.z;
     pose_in_mocap_frame.pose.orientation = transformStamped.transform.rotation;
 
-    // Now transform the pose from mocap frame to px4 frame
+    // 3) Convert body orientation from FLU -> FRD by rotating 180 deg about X
+    {
+        tf2::Quaternion q_flu;
+        tf2::fromMsg(pose_in_mocap_frame.pose.orientation, q_flu);
+
+        // 180° about X; tf2::Quaternion(x, y, z, w)
+        tf2::Quaternion q_flu_to_frd(1.0, 0.0, 0.0, 0.0);
+
+        tf2::Quaternion q_frd = q_flu * q_flu_to_frd;
+        q_frd.normalize();
+
+        pose_in_mocap_frame.pose.orientation = tf2::toMsg(q_frd);
+    }
+
+    // 4) Transform pose from mocap world to PX4 world frame
     geometry_msgs::msg::PoseStamped pose_in_px4_frame;
     try {
-        // Lookup transform from mocap reference frame to px4 frame
-        geometry_msgs::msg::TransformStamped mocap_to_px4 = this->tf_buffer_->lookupTransform(
-            "px4",                // target frame
-            this->gt_ref_name_,   // source frame (mocap reference)
-            tf2::TimePointZero
-        );
+        geometry_msgs::msg::TransformStamped mocap_to_px4 =
+            this->tf_buffer_->lookupTransform(
+                "px4",               // target frame (PX4 world, typically NED)
+                this->gt_ref_name_,  // source frame (mocap world)
+                tf2::TimePointZero
+            );
 
-        // Transform pose into px4 frame
         tf2::doTransform(pose_in_mocap_frame, pose_in_px4_frame, mocap_to_px4);
 
     } catch (tf2::TransformException &ex) {
@@ -127,24 +140,23 @@ void GroundTruthToPx4::clbk_publoop() {
         return;
     }
 
-    // Create PX4 VehicleOdometry message
+    // 5) Publish to PX4 as VehicleOdometry (PX4 expects NED + body FRD; quaternion order w,x,y,z)
     px4_msgs::msg::VehicleOdometry vehicleOdom;
-    vehicleOdom.timestamp = pose_in_px4_frame.header.stamp.sec * 1000000 + pose_in_px4_frame.header.stamp.nanosec / 1000;
+    vehicleOdom.timestamp =
+        pose_in_px4_frame.header.stamp.sec * 1000000ULL +
+        pose_in_px4_frame.header.stamp.nanosec / 1000ULL;
 
-    vehicleOdom.pose_frame = px4_msgs::msg::VehicleOdometry::POSE_FRAME_NED; // PX4 expects NED frame
+    vehicleOdom.pose_frame = px4_msgs::msg::VehicleOdometry::POSE_FRAME_NED;
 
-    // Position in NED frame
     vehicleOdom.position[0] = pose_in_px4_frame.pose.position.x;
     vehicleOdom.position[1] = pose_in_px4_frame.pose.position.y;
     vehicleOdom.position[2] = pose_in_px4_frame.pose.position.z;
 
-    // Orientation quaternion (w, x, y, z)
-    vehicleOdom.q[0] = pose_in_px4_frame.pose.orientation.w;
+    vehicleOdom.q[0] = pose_in_px4_frame.pose.orientation.w; // (w, x, y, z)
     vehicleOdom.q[1] = pose_in_px4_frame.pose.orientation.x;
     vehicleOdom.q[2] = pose_in_px4_frame.pose.orientation.y;
     vehicleOdom.q[3] = pose_in_px4_frame.pose.orientation.z;
 
-    // Publish the odometry message
     this->pub_mocap_px4_->publish(vehicleOdom);
 }
 
@@ -152,14 +164,16 @@ void GroundTruthToPx4::clbk_publoop() {
 // Could do this manually without tfs if faster is required
 void GroundTruthToPx4::create_static_tfs(){   
     // Create a transform stamped msg to publish
-    geometry_msgs::msg::TransformStamped transformStamped;
+    geometry_msgs::msg::TransformStamped stamped_px4_rel_mocap;
+    geometry_msgs::msg::TransformStamped stamped_mocap_rel_gt;
 
-    transformStamped.header.stamp = this->get_clock()->now();  // ros::Time::now();
-    transformStamped.header.frame_id = "ground_truth"; // Reference frame
-    transformStamped.child_frame_id = "px4";
-    transformStamped.transform.translation.x = this->t_px4_rel_mocap_[0];
-    transformStamped.transform.translation.y = this->t_px4_rel_mocap_[1];
-    transformStamped.transform.translation.z = this->t_px4_rel_mocap_[2];
+    // MOCAP TO PX4
+    stamped_px4_rel_mocap.header.stamp = this->get_clock()->now();  // ros::Time::now();
+    stamped_px4_rel_mocap.header.frame_id = "mocap"; // Mocap frame
+    stamped_px4_rel_mocap.child_frame_id = "px4";
+    stamped_px4_rel_mocap.transform.translation.x = this->t_px4_rel_mocap_[0];
+    stamped_px4_rel_mocap.transform.translation.y = this->t_px4_rel_mocap_[1];
+    stamped_px4_rel_mocap.transform.translation.z = this->t_px4_rel_mocap_[2];
 
     // Compute the rotation matrix from Yaw-Pitch-Roll
     tf2::Quaternion q;
@@ -167,13 +181,26 @@ void GroundTruthToPx4::create_static_tfs(){
     m.setRPY(this->R_px4_rel_mocap_ypr_[2], this->R_px4_rel_mocap_ypr_[1], this->R_px4_rel_mocap_ypr_[0]);
     m.getRotation(q);
 
-    transformStamped.transform.rotation.x = q.x();
-    transformStamped.transform.rotation.y = q.y();
-    transformStamped.transform.rotation.z = q.z();
-    transformStamped.transform.rotation.w = q.w();
+    stamped_px4_rel_mocap.transform.rotation.x = q.x();
+    stamped_px4_rel_mocap.transform.rotation.y = q.y();
+    stamped_px4_rel_mocap.transform.rotation.z = q.z();
+    stamped_px4_rel_mocap.transform.rotation.w = q.w();
 
-    // Broadcast the transform
-    this->tf_static_broadcaster_px4_rel_mocap_->sendTransform(transformStamped);
+    // GROUND TRUTH TO MOCAP
+    stamped_mocap_rel_gt.header.stamp = this->get_clock()->now();  // ros::Time::now();
+    stamped_mocap_rel_gt.header.frame_id = this->gt_ref_name_;
+    stamped_mocap_rel_gt.child_frame_id = "mocap";
+    stamped_mocap_rel_gt.transform.translation.x = 0.0;
+    stamped_mocap_rel_gt.transform.translation.y = 0.0;
+    stamped_mocap_rel_gt.transform.translation.z = 0.0;
+    stamped_mocap_rel_gt.transform.rotation.x = 0.0;
+    stamped_mocap_rel_gt.transform.rotation.y = 0.0;
+    stamped_mocap_rel_gt.transform.rotation.z = 0.0;
+    stamped_mocap_rel_gt.transform.rotation.w = 1.0;
+
+    // Broadcast the transforms
+    this->tf_static_broadcaster_px4_rel_mocap_->sendTransform(stamped_px4_rel_mocap);
+    this->tf_static_broadcaster_px4_rel_mocap_->sendTransform(stamped_mocap_rel_gt);
 }
 
 int main(int argc, char *argv[]) {
