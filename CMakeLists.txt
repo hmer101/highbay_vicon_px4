@@ -48,6 +48,7 @@ endif()
 # add_library(State src/State.cpp)
 
 add_executable(highbay_to_px4 src/highbayToPx4.cpp)
+add_executable(ground_truth_to_px4 src/groundTruthToPx4.cpp)
 
 # Specify libraries to link a library or executable target against
 # target_link_libraries(slung_pose_measurement
@@ -58,10 +59,12 @@ add_executable(highbay_to_px4 src/highbayToPx4.cpp)
 
 # Add external dependencies
 ament_target_dependencies(highbay_to_px4 tf2 rclcpp tf2_geometry_msgs tf2_ros px4_msgs) #tf2_geometry_msgs tf2 Eigen3
+ament_target_dependencies(ground_truth_to_px4 tf2 rclcpp tf2_geometry_msgs tf2_ros px4_msgs)
 
 # Install the libraries and executables
 install(TARGETS
   highbay_to_px4
+  ground_truth_to_px4
   DESTINATION lib/${PROJECT_NAME})
 
 
